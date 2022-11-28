@@ -48,20 +48,20 @@ class VehicularParallelEnv(ParallelEnv):
                  queue_max_size=20, battery_max_size=100):
 
         self.reward_mode = reward_mode  # 0: competitive, 1: mean, 2: increase performance of the worst
-        self.threshold_queue = threshold_queue  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
+        self.threshold_queue = threshold_queue
         self.threshold_battery = threshold_battery  # should always be zero
-        self.battery_weight = battery_weight  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
-        self.queue_weight = queue_weight  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
+        self.battery_weight = battery_weight
+        self.queue_weight = queue_weight
 
-        self.battery_recharge_rate = battery_recharge_rate  # Fabio
-        self.battery_depletion_rate = battery_depletion_rate  # PARAMETRO DA FAR VARIARE, per ora ora lo lascio così
-        self.epsilon_battery = epsilon_battery  # PARAMETRO DA FAR VARIARE, provane alcuni e vedi se alcuni convergono e altri no
-        self.epsilon_queue = epsilon_queue  # PARAMETRO DA FAR VARIARE, provane alcuni e vedi se alcuni convergono e altri no
+        self.battery_recharge_rate = battery_recharge_rate
+        self.battery_depletion_rate = battery_depletion_rate
+        self.epsilon_battery = epsilon_battery
+        self.epsilon_queue = epsilon_queue
 
-        self.proc_rate = proc_rate  # OK!
+        self.proc_rate = proc_rate
         self.n_cpus_max = n_cpus_max
-        self.queue_max_size = queue_max_size  # Fabio
-        self.battery_max_size = battery_max_size  # OK!
+        self.queue_max_size = queue_max_size
+        self.battery_max_size = battery_max_size
         self.lmda_zones = lmda_zones
         self.episode = -1  # starts at -1, then immediately is increased to 0 by calling reset()
         '''
@@ -105,24 +105,9 @@ class VehicularParallelEnv(ParallelEnv):
         pass
 
     def close(self):
-        '''
-        Close should release any graphical displays, subprocesses, network connections
-        or any other environment data which should not be kept around after the
-        user is no longer using the environment.
-        '''
         pass
 
     def reset(self):
-        '''
-        Reset needs to initialize the `agents` attribute and must set up the
-        environment so that render(), and step() can be called without issues.
-
-        Here it initializes the `num_moves` variable which counts the number of
-        hands that are played.
-
-        Returns the observations for each agent
-        '''
-
         self.agents = self.possible_agents[:]
         self.steps = 0
         self.cumulative_reward = 0
@@ -135,8 +120,6 @@ class VehicularParallelEnv(ParallelEnv):
         # action = cpu, off for each rsu
         self.steps += 1
         for n in range(self.n_rsu):
-            # print("rsu: ", n)
-            # print("actions: ", actions[n])
             self._execute_actions(actions[n], n)
 
         done = self.steps >= self.max_steps
@@ -164,6 +147,7 @@ class VehicularParallelEnv(ParallelEnv):
             rewards = [self._get_reward(agent_idx) for agent_idx, _ in enumerate(self.agents)]
             _rewards = rewards
             worst_reward = min(rewards)
+            wandb.log({"worst reward": worst_reward, "episode": self.episode}, commit=False)
             index_worst_rsu = rewards.index(worst_reward)
             rewards = [worst_reward for _ in self.agents]
 

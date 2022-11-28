@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from numpy.linalg import inv
-import matplotlib.pyplot as plt
 
 
 class MAB(ABC):
@@ -9,7 +7,7 @@ class MAB(ABC):
     @abstractmethod
     def choose_arm(self, arm_q_values):
         # average mean reward array
-        # at round t is passed to this function)
+        # at round t is passed to this function
         self.arm_q_values = arm_q_values
         # choose an arm which yields maximum value of average mean reward, tie breaking randomly
         chosen_arm = np.random.choice(np.where(self.arm_q_values == max(self.arm_q_values))[0])
@@ -26,6 +24,7 @@ class MAB(ABC):
         # update average mean reward of each arm
         self.AM_reward[self.arm] = ((self.step_arm[self.arm] - 1) / float(self.step_arm[self.arm])
                                     * self.AM_reward[self.arm] + (1 / float(self.step_arm[self.arm])) * reward)
+
 
 
 class EpsGreedy(MAB):
