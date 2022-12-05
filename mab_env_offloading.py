@@ -42,12 +42,13 @@ def raw_env(n_rsu, n_cpus_max, lamda_zones):
 class VehicularParallelEnv(ParallelEnv):
     metadata = {'render.modes': ['human'], "name": "rps_v2"}
 
-    def __init__(self, n_rsu, n_cpus_max, lmda_zones, reward_mode=0, threshold_queue=20,
+    def __init__(self, n_rsu, n_cpus_max, lmda_zones, reward_mode=0, use_epsilon=True, threshold_queue=20,
                  threshold_battery=0, battery_weight=0.5, queue_weight=0.5, battery_recharge_rate=1,
                  battery_depletion_rate=1, epsilon_battery=0.0000001, epsilon_queue=0.00001, proc_rate=1,
                  queue_max_size=20, battery_max_size=100):
 
         self.reward_mode = reward_mode  # 0: competitive, 1: mean, 2: increase performance of the worst
+        self.use_epsilon = use_epsilon  # True -> epsilon to normalize reward, False -> rew = - prob_overload
         self.threshold_queue = threshold_queue  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
         self.threshold_battery = threshold_battery  # should always be zero
         self.battery_weight = battery_weight  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
@@ -171,13 +172,19 @@ class VehicularParallelEnv(ParallelEnv):
         self.cumulative_reward += sum_rewards
 
         if done:
+            latency_vec = []
             for i in range(self.n_rsu):
                 wandb.log({f"rsu {i} CEs": self.rsu[i].ce, "episode": self.episode}, commit=False)
                 wandb.log({f"rsu {i} OFF PROB": self.rsu[i].off_prob, "episode": self.episode}, commit=False)
                 wandb.log({f"rsu {i} received reward": rewards[i], "episode": self.episode}, commit=False)
+                latency_vec.append(self._get_latency_prob(i))
+            wandb.log({"sum of overload probabilities": sum(latency_vec), "episode": self.episode}, commit=False)
+            wandb.log({"max overload probabilities": max(latency_vec), "episode": self.episode}, commit=False)
+            wandb.log({"min overload probabilities": min(latency_vec), "episode": self.episode}, commit=False)
+            wandb.log({"mean overload probabilities": statistics.mean(latency_vec), "episode": self.episode}, commit=False)
+
             wandb.log({"episode reward": self.cumulative_reward, "episode": self.episode}, commit=False)
             wandb.log({"worst performing rsu": index_worst_rsu, "episode": self.episode}, commit=True)
-            pass
 
         return observations, rewards, dones, infos
 
@@ -190,6 +197,26 @@ class VehicularParallelEnv(ParallelEnv):
         # obs = np.array(obs)
         return obs
 
+    def _get_latency_prob(self, agent_index):
+        # reward is equal for all rsu
+        rsu = self.rsu[agent_index]
+        offloading_prob = [agent.get_off_prob() for agent in self.rsu]
+        rsu_id = agent_index
+        lmda_zones = self.lmda_zones
+        computing_elements = [self.rsu[idx].get_ce() for idx in range(self.n_rsu)]
+        proc_rate = rsu.proc_rate  # [self.rsu[idx].proc_rate for idx in range(self.n_rsu)]  # same for all RSUs
+        CE = self.rsu[rsu_id].get_ce()
+        queue_max_size = self.rsu[rsu_id].queue_max_size
+        threshold_latency = self.rsu[rsu_id].threshold_queue
+
+        epsilon_queue = self.epsilon_queue
+
+        in_rate = get_lmda(offloading_probabilities=offloading_prob, rsu_id=rsu_id,
+                           lmda_zones=lmda_zones, computing_elements=computing_elements, mu=proc_rate)
+
+        prob_latency = get_latency(in_rate, proc_rate, CE, queue_max_size, threshold_latency)
+        return prob_latency
+
     # reward is equal for all rsu. I still keep agent_index for possible extensions with different rewards
     def _get_reward(self, agent_index):
         # reward is equal for all rsu
@@ -199,50 +226,29 @@ class VehicularParallelEnv(ParallelEnv):
         lmda_zones = self.lmda_zones
         computing_elements = [self.rsu[idx].get_ce() for idx in range(self.n_rsu)]
         proc_rate = rsu.proc_rate  # [self.rsu[idx].proc_rate for idx in range(self.n_rsu)]  # same for all RSUs
-        battery_recharge_rate = self.rsu[rsu_id].battery_recharge_rate  # same for all RSUs
-        battery_depletion_rate = 1
         CE = self.rsu[rsu_id].get_ce()
-        battery_max_size = self.rsu[rsu_id].battery_max_size
-        threshold_battery = self.rsu[rsu_id].threshold_battery
         queue_max_size = self.rsu[rsu_id].queue_max_size
         threshold_latency = self.rsu[rsu_id].threshold_queue
 
-        epsilon_battery = self.epsilon_battery
         epsilon_queue = self.epsilon_queue
-        battery_weight = self.battery_weight
-        queue_weight = self.queue_weight
 
         in_rate = get_lmda(offloading_probabilities=offloading_prob, rsu_id=rsu_id,
                            lmda_zones=lmda_zones, computing_elements=computing_elements, mu=proc_rate)
 
-        # if threshold battery is not zero, then it doesn't work. (get_depletions checks that threshold<CE to use
-        # battery equations rather than queue equations)
-        prob_dep = get_depletion(battery_recharge_rate, battery_depletion_rate, CE, battery_max_size, threshold_battery)
-        assert 0 <= prob_dep <= 1
-
         prob_latency = get_latency(in_rate, proc_rate, CE, queue_max_size, threshold_latency)
         assert 0 <= prob_latency <= 1, f"prob {prob_latency} is > 1"
 
-        wandb.log({f"prob depletion rsu {agent_index}": prob_dep, "episode": self.episode}, commit=False)
         wandb.log({f"prob overload rsu {agent_index}": prob_latency, "episode": self.episode}, commit=False)
 
-        # TODO: reward_dep and reward_overload should both be between 0 and 1, but are instead between -1 and 1
-        if prob_dep >= epsilon_battery:
-            reward_dep = (math.log(prob_dep) - math.log(epsilon_battery)) / (math.log(epsilon_battery))
+        if self.use_epsilon:
+            if prob_latency >= epsilon_queue:
+                reward_overload = (math.log(prob_latency) - math.log(epsilon_queue)) / (math.log(epsilon_queue))
+            else:
+                reward_overload = 1
+
         else:
-            reward_dep = 1
 
-        if prob_latency >= epsilon_queue:
-            reward_overload = (math.log(prob_latency) - math.log(epsilon_queue)) / (math.log(epsilon_queue))
-        else:
-            reward_overload = 1
-
-        """
-
-        reward_dep = - prob_dep
-        reward_overload = -prob_latency
-
-        """
+            reward_overload = -prob_latency
 
         """
 
@@ -251,14 +257,12 @@ class VehicularParallelEnv(ParallelEnv):
 
         """
 
-        reward = (battery_weight * reward_dep) + (queue_weight * reward_overload)
+        reward = reward_overload
 
-        wandb.log({f"episode reward depletion rsu {agent_index}": reward_dep, "episode": self.episode}, commit=False)
+        wandb.log({f"episode latency rsy {agent_index}": prob_latency, "episode": self.episode}, commit=False)
+
         wandb.log({f"episode reward latency rsu {agent_index}": reward_overload, "episode": self.episode},
                   commit=False)
-        wandb.log({f"episode total reward rsu {agent_index}": reward, "episode": self.episode}, commit=False)
-
-        # TODO: maybe give both reward_latency and reward_depletion only to cpu-agent, while give only
-        #       reward_latency to offloading-agents
+        wandb.log({f"episode personal reward rsu {agent_index}": reward, "episode": self.episode}, commit=False)
 
         return reward

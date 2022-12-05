@@ -1,4 +1,5 @@
 import numpy as np
+import math
 
 
 def p0(in_rate, proc_rate, CE, K):
@@ -38,7 +39,7 @@ def get_overload(lamda, mu, CE, K, k_th):
     return sum_p
 
 
-# probability of battery depletion for a single RSU
+# prob (battery?) depletion for a single RSU
 def get_depletion(lamda, mu, CE, K, k_th):
     # print("lamda:", lamda, "mu:", mu, "CE:", CE, "K:", K, "k_th:", k_th)
     sum_p = 0
@@ -59,13 +60,21 @@ def get_latency(lamda, mu, CE, K, tau_th):
 
 def get_lmda(offloading_probabilities, rsu_id, lmda_zones, computing_elements, mu):
     rsu_offloading_prob = offloading_probabilities[rsu_id]
+    # print("offloading probability:", rsu_offloading_prob)
 
     # it requires that proc_rate (mu) is the same for all RSUs. Might fix it in the future
     load_rsu = [lmda_zone / (computing_element * mu) for lmda_zone, computing_element in
                 zip(lmda_zones, computing_elements)]
+    # print("load rsu[rsu_id]:", load_rsu[rsu_id])
+    # print("load all rsus:", load_rsu)
     weight_rsu = load_rsu[rsu_id] / sum(load_rsu)
+    # print("weights rsu:", weight_rsu)
+    # print("weights rsu:", weight_rsu)
+    # sum_other_offloadings = sum([lmda_zone * prob_off for lmda_zone, prob_off in zip(lmda_zones, offloading_probabilities)])
     lmda_off = [lmda_zone * prob_off for lmda_zone, prob_off in zip(lmda_zones, offloading_probabilities)]
     lmda_others = [lmda_offloading for i, lmda_offloading in enumerate(lmda_off) if i != rsu_id]
     sum_other_offloadings = sum(lmda_others)
+    # print("lmda from other zones:", sum_other_offloadings)
     lmda = lmda_zones[rsu_id] * (1 - rsu_offloading_prob) + (1 - weight_rsu) * sum_other_offloadings
+    # print("lmda rsu:", lmda)
     return lmda
