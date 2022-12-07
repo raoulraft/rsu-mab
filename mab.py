@@ -24,8 +24,13 @@ class MAB(ABC):
         # update the step of individual arms
         self.step_arm[self.arm] += 1
         # update average mean reward of each arm
+        """
         self.AM_reward[self.arm] = ((self.step_arm[self.arm] - 1) / float(self.step_arm[self.arm])
                                     * self.AM_reward[self.arm] + (1 / float(self.step_arm[self.arm])) * reward)
+        """
+        alpha = 0.01
+
+        self.AM_reward[self.arm] = ((1-alpha) * self.AM_reward[self.arm]) + (alpha * (self.AM_reward[self.arm] - reward))
 
 
 class EpsGreedy(MAB):
