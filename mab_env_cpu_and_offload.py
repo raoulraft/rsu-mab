@@ -44,7 +44,7 @@ class VehicularParallelEnv(ParallelEnv):
 
     def __init__(self, n_rsu, n_cpus_max, lmda_zones, reward_mode=0, use_epsilon=True, threshold_queue=20,
                  threshold_battery=0, battery_weight=0.5, queue_weight=0.5, battery_recharge_rate=2,
-                 battery_depletion_rate=1, epsilon_battery=0.0000001, epsilon_queue=0.00001, proc_rate=1,
+                 battery_depletion_rate=1, epsilon_battery=0.0001, epsilon_queue=0.0001, proc_rate=1,
                  queue_max_size=20, battery_max_size=100):
 
         self.reward_mode = reward_mode  # 0: competitive, 1: mean, 2: increase performance of the worst
@@ -190,6 +190,7 @@ class VehicularParallelEnv(ParallelEnv):
             wandb.log({"max overload probabilities": max(latency_vec), "episode": self.episode}, commit=False)
             wandb.log({"min overload probabilities": min(latency_vec), "episode": self.episode}, commit=False)
             wandb.log({"mean overload probabilities": statistics.mean(latency_vec), "episode": self.episode}, commit=False)
+            wandb.log({"REWARD TO LOOK AT": sum(rewards), "episode": self.episode}, commit=False)
 
             wandb.log({"episode reward": self.cumulative_reward, "episode": self.episode}, commit=False)
             wandb.log({"worst performing rsu": index_worst_rsu, "episode": self.episode}, commit=True)

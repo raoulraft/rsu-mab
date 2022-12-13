@@ -6,31 +6,23 @@ import matplotlib.pyplot as plt
 
 class MAB(ABC):
 
-    @abstractmethod
-    def choose_arm(self, arm_q_values):
-        # average mean reward array
-        # at round t is passed to this function)
-        self.arm_q_values = arm_q_values
-        # choose an arm which yields maximum value of average mean reward, tie breaking randomly
-        chosen_arm = np.random.choice(np.where(self.arm_q_values == max(self.arm_q_values))[0])
-        return chosen_arm
+    def __init__(self):
+        self.contextual_rewards = None
 
     @abstractmethod
-    def update(self, arm, reward):
-        # get the chosen arm
-        self.arm = arm
-        # update the overall step of the model
-        self.step_n += 1
-        # update the step of individual arms
-        self.step_arm[self.arm] += 1
-        # update average mean reward of each arm
+    def choose_arm(self, front_ex_arm, back_ex_arm):
+        best_value = -np.inf
+        best_arm = -1
+        for arm in range(len(self.narms)):
+            if self.contextual_rewards[arm, front_ex_arm, back_ex_arm] > best_value:
+                best_arm = arm
+                best_value = self.contextual_rewards[arm, front_ex_arm, back_ex_arm]
 
-        self.AM_reward[self.arm] = ((self.step_arm[self.arm] - 1) / float(self.step_arm[self.arm])
-                                    * self.AM_reward[self.arm] + (1 / float(self.step_arm[self.arm])) * reward)
+        return best_arm
 
-        alpha = 0.001
-
-        # self.AM_reward[self.arm] = (self.AM_reward[self.arm]) + (alpha * (self.AM_reward[self.arm] - reward))
+    @abstractmethod
+    def contextual_update(self, arm, front_arm, back_arm, reward):
+        self.contextual_rewards[arm, front_arm, back_arm] = reward
 
 
 class EpsGreedy(MAB):
@@ -49,6 +41,8 @@ class EpsGreedy(MAB):
         # Mean reward for each arm
         self.AM_reward = np.zeros(self.narms)
 
+        # itself plus two neighbours, i.e. the one in front and the one in the back
+        self.contextual_rewards = np.zeros((narms, narms, narms))
         super().__init__()
 
     # Play one round and return the action (chosen arm)
@@ -56,21 +50,18 @@ class EpsGreedy(MAB):
         # Generate random number
         p = np.random.rand()
 
-        if self.epsilon == 0 and self.step_n == 0:
-            action = np.random.choice(self.narms)
-        elif p < self.epsilon:
+        if p < self.epsilon:
             action = np.random.choice(self.narms)
         else:
             # Q0 values are initially set to np.inf. Hence, choose an arm with maximum Q0 value (
             # for all of them is np.inf, and therefore will play all of the arms at least one time)
 
-            if len(np.where(self.Q0 == 0)[0]) < self.narms:  # was < 10
+            if len(np.where(self.Q0 == 0)[0]) < self.narms:
                 # choose an arm with maximum Q0 value
                 action = np.random.choice(np.where(self.Q0 == max(self.Q0))[0])
                 # after the arm is chosen, set the corresponding Q0 value to zero
                 self.Q0[action] = 0
             else:
-                assert len(np.where(self.Q0 == np.inf)[0]) == 0
                 # Now, after that we ensure that there is no np.inf in Q0 values and all of them are set to zero
                 # we return to play based on average mean rewards
                 action = super(EpsGreedy, self).choose_arm(self.AM_reward)
@@ -79,10 +70,13 @@ class EpsGreedy(MAB):
     def update(self, arm, reward):
         super(EpsGreedy, self).update(arm, reward)
 
+    def contextual_update(self, arm, front_arm, back_arm, reward):
+        super(EpsGreedy, self).contextual_update(arm, front_arm, back_arm, reward)
+
 
 class UCB(MAB):
 
-    def __init__(self, narms, rho, type):
+    def __init__(self, narms, rho):
         # Set number of arms
         self.narms = narms
         # Rho
@@ -95,8 +89,6 @@ class UCB(MAB):
         self.step_arm = np.zeros(self.narms)
         # Mean reward for each arm
         self.AM_reward = np.zeros(self.narms)
-        # agent type ("CPU or OFFLOAD")
-        self.type = type
         super().__init__()
 
     # Play one round and return the action (chosen arm)
@@ -104,8 +96,7 @@ class UCB(MAB):
         # Q0 values are initially set to np.inf. Hence, choose an arm with maximum Q0 value (
         # for all of them is np.inf, and therefore will play all of the arms at least one time)
 
-        if len(np.where(self.Q0 == 0)[0]) < self.narms:  # was 10
-            # print("agent type:", self.type, ":", np.where(self.Q0 == 0))
+        if len(np.where(self.Q0 == 0)[0]) < self.narms:
             # choose an arm with maximum Q0 value
             action = np.random.choice(np.where(self.Q0 == max(self.Q0))[0])
             # after the arm is chosen, set the corresponding Q0 value to zero
@@ -115,7 +106,6 @@ class UCB(MAB):
             # we return to play based on average mean rewards
 
             # construct UCB values which performs the sqrt part
-            # print("agent type:", self.type, ":going ucb!")
             ucb_values = np.zeros(self.narms)
             for arm in range(self.narms):
                 if self.step_arm[arm] > 0:

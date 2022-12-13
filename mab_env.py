@@ -42,9 +42,9 @@ def raw_env(n_rsu, n_cpus_max, lamda_zones):
 class VehicularParallelEnv(ParallelEnv):
     metadata = {'render.modes': ['human'], "name": "rps_v2"}
 
-    def __init__(self, n_rsu, n_cpus_max, lmda_zones, reward_mode=0, threshold_queue=20,
-                 threshold_battery=0, battery_weight=0.5, queue_weight=0.5, battery_recharge_rate=1,
-                 battery_depletion_rate=1, epsilon_battery=0.0000001, epsilon_queue=0.00001, proc_rate=1,
+    def __init__(self, n_rsu, n_cpus_max, lmda_zones, use_epsilon=True, reward_mode=0, threshold_queue=20,
+                 threshold_battery=0, battery_weight=1, queue_weight=1, battery_recharge_rate=1,
+                 battery_depletion_rate=1, epsilon_battery=0.0001, epsilon_queue=0.0001, proc_rate=1,
                  queue_max_size=20, battery_max_size=100):
 
         self.reward_mode = reward_mode  # 0: competitive, 1: mean, 2: increase performance of the worst
@@ -52,6 +52,7 @@ class VehicularParallelEnv(ParallelEnv):
         self.threshold_battery = threshold_battery  # should always be zero
         self.battery_weight = battery_weight  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
         self.queue_weight = queue_weight  # PARAMETRO DA FAR VARIARE, per ora lo lascio così
+        self.use_epsilon = use_epsilon
 
         self.battery_recharge_rate = battery_recharge_rate  # Fabio
         self.battery_depletion_rate = battery_depletion_rate  # PARAMETRO DA FAR VARIARE, per ora ora lo lascio così
@@ -177,6 +178,7 @@ class VehicularParallelEnv(ParallelEnv):
                 wandb.log({f"rsu {i} received reward": rewards[i], "episode": self.episode}, commit=False)
             wandb.log({"episode reward": self.cumulative_reward, "episode": self.episode}, commit=False)
             wandb.log({"worst performing rsu": index_worst_rsu, "episode": self.episode}, commit=True)
+            wandb.log({"REWARD TO LOOK AT": sum(rewards), "episode": self.episode}, commit=False)
             pass
 
         return observations, rewards, dones, infos
@@ -226,16 +228,23 @@ class VehicularParallelEnv(ParallelEnv):
         wandb.log({f"prob depletion rsu {agent_index}": prob_dep, "episode": self.episode}, commit=False)
         wandb.log({f"prob overload rsu {agent_index}": prob_latency, "episode": self.episode}, commit=False)
 
-        # TODO: reward_dep and reward_overload should both be between 0 and 1, but are instead between -1 and 1
-        if prob_dep >= epsilon_battery:
-            reward_dep = (math.log(prob_dep) - math.log(epsilon_battery)) / (math.log(epsilon_battery))
-        else:
-            reward_dep = 1
 
-        if prob_latency >= epsilon_queue:
-            reward_overload = (math.log(prob_latency) - math.log(epsilon_queue)) / (math.log(epsilon_queue))
+        if self.use_epsilon:
+            if prob_latency >= epsilon_queue:
+                reward_overload = (math.log(prob_latency) - math.log(epsilon_queue)) / (math.log(epsilon_queue))
+            else:
+                reward_overload = 1
+
+            if prob_dep >= epsilon_battery:
+                reward_dep = (math.log(prob_dep) - math.log(epsilon_battery)) / (math.log(epsilon_battery))
+            else:
+                reward_dep = 1
+
         else:
-            reward_overload = 1
+
+            reward_overload = -prob_latency
+            reward_dep = -prob_dep
+
 
         """
 
@@ -251,11 +260,18 @@ class VehicularParallelEnv(ParallelEnv):
 
         """
 
-        reward = (battery_weight * reward_dep) + (queue_weight * reward_overload)
+        reward = (reward_overload * queue_weight) + (reward_dep * battery_weight)
+
+
+        wandb.log({f"episode latency rsu {agent_index}": prob_latency, "episode": self.episode}, commit=False)
 
         wandb.log({f"episode reward depletion rsu {agent_index}": reward_dep, "episode": self.episode}, commit=False)
+
+        wandb.log({f"episode battery depletion rsu {agent_index}": prob_dep, "episode": self.episode}, commit=False)
+
         wandb.log({f"episode reward latency rsu {agent_index}": reward_overload, "episode": self.episode},
                   commit=False)
+
         wandb.log({f"episode total reward rsu {agent_index}": reward, "episode": self.episode}, commit=False)
 
         # TODO: maybe give both reward_latency and reward_depletion only to cpu-agent, while give only
